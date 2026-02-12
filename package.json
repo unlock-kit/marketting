@@ -7,7 +7,8 @@
     "build": "npx prisma generate && npx tsc",
     "start": "node dist/server/index.js",
     "start:worker": "node dist/server/worker.js",
-    "dev": "ts-node-dev --respawn server/index.ts"
+    "dev": "ts-node-dev --respawn server/index.ts",
+    "db:push": "npx prisma db push"
   },
   "dependencies": {
     "@prisma/client": "^5.10.0",

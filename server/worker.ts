@@ -1,6 +1,6 @@
 import { Worker, Job } from 'bullmq';
 import nodemailer from 'nodemailer';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, DeliveryStatus } from '@prisma/client';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -9,7 +9,7 @@ const prisma = new PrismaClient();
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: parseInt(process.env.SMTP_PORT || '587'),
-  secure: false,
+  secure: false, // true for 465, false for other ports
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
@@ -22,12 +22,11 @@ const emailWorker = new Worker('email-queue', async (job: Job) => {
   const { campaignId, recipient, body, subject, trackingId } = job.data;
 
   try {
-    // Inject Tracking Pixel
     const trackingUrl = `${process.env.APP_URL}/track/open/${trackingId}`;
     const trackedBody = `${body}<img src="${trackingUrl}" width="1" height="1" style="display:none;" />`;
 
-    const info = await transporter.sendMail({
-      from: `"ZenithMail Engine" <${process.env.SMTP_USER}>`,
+    await transporter.sendMail({
+      from: `"Zenith Marketing" <${process.env.SMTP_USER}>`,
       to: recipient.email,
       subject,
       html: trackedBody,
@@ -38,13 +37,11 @@ const emailWorker = new Worker('email-queue', async (job: Job) => {
       }
     });
 
-    // Log successful dispatch
     await prisma.deliveryLog.create({
       data: {
         campaignId,
         subscriberId: recipient.id,
-        status: 'SENT',
-        metadata: { messageId: info.messageId }
+        status: DeliveryStatus.SENT
       }
     });
 
@@ -54,18 +51,16 @@ const emailWorker = new Worker('email-queue', async (job: Job) => {
     });
 
   } catch (error: any) {
-    console.error(`Worker error for job ${job.id}:`, error.message);
-    
+    console.error(`Job ${job.id} failed:`, error.message);
     await prisma.campaign.update({
       where: { id: campaignId },
       data: { failedCount: { increment: 1 } }
     });
-    
-    throw error; // Let BullMQ handle retries
+    throw error;
   }
 }, {
   connection: { url: process.env.REDIS_URL || 'redis://cache:6379' },
-  concurrency: 25 // Optimized for 4GB RAM
+  concurrency: 15
 });
 
-console.log('👷 ZenithMail High-Volume Worker Pool Active');
+console.log('👷 Worker Ready: Processing Queue');

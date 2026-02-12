@@ -1,60 +1,58 @@
-
 #!/bin/bash
-
-# ZenithMail VPS Provisioning Script
-# Target: AlmaLinux 8.9 / RHEL 8
-# Optimized for 4GB RAM
-
+# ZenithMail Production Provisioning
 set -e
 
-echo "🚀 Starting ZenithMail Environment Setup for AlmaLinux..."
+echo "🚀 Provisioning Ubuntu/AlmaLinux VPS for ZenithMail..."
 
-# 1. Update System
-dnf update -y
+# 1. Update and Essentials
+if command -v apt-get &> /dev/null; then
+    apt-get update && apt-get upgrade -y
+    apt-get install -y curl git ufw certbot python3-certbot-nginx
+else
+    dnf update -y
+    dnf install -y curl git firewalld certbot python3-certbot-nginx
+fi
 
-# 2. Create Swap File (Crucial for 4GB RAM)
+# 2. Swap Space (Vital for 4GB RAM)
 if [ ! -f /swapfile ]; then
-    echo "📦 Creating 4GB Swap space..."
-    dd if=/dev/zero of=/swapfile bs=1M count=4096
+    echo "💾 Creating 4GB Swap..."
+    fallocate -l 4G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=4096
     chmod 600 /swapfile
     mkswap /swapfile
     swapon /swapfile
-    echo '/swapfile none swap sw 0 0' | tee -a /etc/fstab
+    echo '/swapfile none swap sw 0 0' >> /etc/fstab
 fi
 
-# 3. Install Docker
-echo "🐳 Installing Docker Engine..."
-dnf config-manager --add-repo=https://download.docker.com/linux/centos/docker-ce.repo
-dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+# 3. Docker Installation
+if ! command -v docker &> /dev/null; then
+    echo "🐳 Installing Docker..."
+    curl -fsSL https://get.docker.com -o get-docker.sh
+    sh get-docker.sh
+    systemctl enable --now docker
+fi
 
-# Start and Enable Docker
-systemctl start docker
-systemctl enable docker
+# 4. Firewall
+echo "🛡️ Configuring Firewall..."
+if command -v ufw &> /dev/null; then
+    ufw allow 22/tcp
+    ufw allow 80/tcp
+    ufw allow 443/tcp
+    ufw --force enable
+else
+    systemctl enable --now firewalld
+    firewall-cmd --permanent --add-service=http
+    firewall-cmd --permanent --add-service=https
+    firewall-cmd --permanent --add-port=22/tcp
+    firewall-cmd --reload
+fi
 
-# 4. Security: Firewalld (AlmaLinux default)
-echo "🛡️ Hardening Firewall (firewalld)..."
-systemctl start firewalld
-systemctl enable firewalld
-firewall-cmd --permanent --add-service=http
-firewall-cmd --permanent --add-service=https
-firewall-cmd --permanent --add-port=22/tcp
-firewall-cmd --reload
-
-# 5. Reverse Proxy Tools
-dnf install -y epel-release
-dnf install -y certbot python3-certbot-nginx
-
-# 6. Optimization: Docker Log Rotation
-mkdir -p /etc/docker
+# 5. Log Rotation
 cat <<EOF > /etc/docker/daemon.json
 {
   "log-driver": "json-file",
-  "log-opts": {
-    "max-size": "10m",
-    "max-file": "3"
-  }
+  "log-opts": { "max-size": "10m", "max-file": "3" }
 }
 EOF
 systemctl restart docker
 
-echo "✅ AlmaLinux Environment Ready!"
+echo "✅ VPS Infrastructure Ready. Run 'deploy.sh' to launch."
