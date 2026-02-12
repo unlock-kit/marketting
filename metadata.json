@@ -1,0 +1,8 @@
+{
+  "name": "ZenithMail - High-Performance Email Marketing Engine",
+  "description": "A professional, self-hosted email marketing platform featuring campaign management, high-volume sending workers, real-time analytics, and secure subscriber management.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
