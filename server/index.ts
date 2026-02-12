@@ -1,4 +1,3 @@
-
 import express from 'express';
 import path from 'path';
 import dotenv from 'dotenv';
@@ -17,7 +16,10 @@ const emailQueue = new Queue('email-queue', {
 });
 
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '..')));
+
+// Serve static files from project root
+const rootPath = path.join(__dirname, '..');
+app.use(express.static(rootPath));
 
 // TRIGGER CAMPAIGN
 app.post('/api/campaigns/:id/launch', async (req, res) => {
@@ -29,8 +31,8 @@ app.post('/api/campaigns/:id/launch', async (req, res) => {
 
     if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
 
-    // Batch add to worker queue
-    const jobs = subscribers.map(sub => ({
+    // Batch add to worker queue with explicit typing
+    const jobs = subscribers.map((sub: any) => ({
       name: 'send-email',
       data: {
         campaignId: campaign.id,
@@ -39,7 +41,10 @@ app.post('/api/campaigns/:id/launch', async (req, res) => {
         body: (campaign.content as any).html,
         trackingId: `${campaign.id}-${sub.id}`
       },
-      opts: { attempts: 3, backoff: { type: 'exponential', delay: 1000 } }
+      opts: { 
+        attempts: 3, 
+        backoff: { type: 'exponential' as const, delay: 1000 } 
+      }
     }));
 
     await emailQueue.addBulk(jobs);
@@ -78,9 +83,9 @@ app.get('/track/open/:trackingId', async (req, res) => {
 });
 
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'index.html'));
+  res.sendFile(path.join(rootPath, 'index.html'));
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 ZenithMail Engine LIVE at ${process.env.APP_URL}`);
+  console.log(`🚀 ZenithMail Engine LIVE at ${process.env.APP_URL || 'http://localhost:3000'}`);
 });
