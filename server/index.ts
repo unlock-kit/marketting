@@ -18,7 +18,8 @@ const emailQueue = new Queue('email-queue', {
 app.use(express.json());
 
 // Serve static files from project root
-const rootPath = path.join(__dirname, '..');
+// Resolve relative to the dist folder when running in production
+const rootPath = path.resolve(__dirname, '..');
 app.use(express.static(rootPath));
 
 // TRIGGER CAMPAIGN
@@ -29,16 +30,19 @@ app.post('/api/campaigns/:id/launch', async (req, res) => {
     const campaign = await prisma.campaign.findUnique({ where: { id } });
     const subscribers = await prisma.subscriber.findMany({ where: { status: 'ACTIVE' } });
 
-    if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
+    if (!campaign) {
+      res.status(404).json({ error: 'Campaign not found' });
+      return;
+    }
 
-    // Batch add to worker queue with explicit typing
-    const jobs = subscribers.map((sub: any) => ({
+    // Batch add to worker queue with explicit typing for subscriber object
+    const jobs = subscribers.map((sub: { id: string; email: string }) => ({
       name: 'send-email',
       data: {
         campaignId: campaign.id,
         recipient: sub,
         subject: campaign.subject,
-        body: (campaign.content as any).html,
+        body: (campaign.content as any)?.html || '',
         trackingId: `${campaign.id}-${sub.id}`
       },
       opts: { 
@@ -52,6 +56,7 @@ app.post('/api/campaigns/:id/launch', async (req, res) => {
 
     res.json({ success: true, count: subscribers.length });
   } catch (error) {
+    console.error('Launch error:', error);
     res.status(500).json({ error: 'Failed to launch campaign' });
   }
 });
@@ -59,7 +64,14 @@ app.post('/api/campaigns/:id/launch', async (req, res) => {
 // TRACKING PIXEL
 app.get('/track/open/:trackingId', async (req, res) => {
   const { trackingId } = req.params;
-  const [campaignId, subscriberId] = trackingId.split('-');
+  const parts = trackingId.split('-');
+  
+  if (parts.length < 2) {
+    res.status(400).end();
+    return;
+  }
+
+  const [campaignId, subscriberId] = parts;
 
   try {
     await prisma.deliveryLog.updateMany({
@@ -74,6 +86,7 @@ app.get('/track/open/:trackingId', async (req, res) => {
     console.error('Tracking log error');
   }
 
+  // 1x1 Transparent GIF
   const pixel = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
   res.writeHead(200, {
     'Content-Type': 'image/gif',
